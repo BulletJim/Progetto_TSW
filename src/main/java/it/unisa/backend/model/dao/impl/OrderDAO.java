@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-public class OrderDAO implements OrderDaoInterface {
+public class OrderDAO implements OrderDaoInterface{
 
     private final DataSource dataSource;
 
@@ -20,15 +20,10 @@ public class OrderDAO implements OrderDaoInterface {
     }
 
     @Override
-    public boolean save(OrderBean order) {
-        String queryOrder = "INSERT INTO orders (user_email, status, total_items, total_price, shipping_costs, "
-                          + "shipping_street, shipping_street_number, shipping_city, shipping_zip_code, shipping_province, shipping_country) "
-                          + "SELECT ?, ?, ?, ?, ?, street, street_number, city, zip_code, province, country "
-                          + "FROM addresses WHERE id = ?";
-        
-        String queryDetails = "INSERT INTO order_details (order_id, variant_id, quantity, purchase_price, vat, product_name, variant_sku, variant_size, variant_flavour) "
-                            + "SELECT ?, v.id, ?, ?, ?, p.name, v.sku, v.size, v.flavour "
-                            + "FROM variants v JOIN products p ON v.product_id = p.id WHERE v.id = ?";
+    public boolean save(OrderBean order){
+    	
+    	String queryOrder = "INSERT INTO orders (user_email, shipping_address_id, status, total_items, total_price, shipping_costs) VALUES (?, ?, ?, ?, ?, ?)";
+        String queryDetails = "INSERT INTO order_details (order_id, variant_id, quantity, purchase_price, vat) VALUES (?, ?, ?, ?, ?)";
         
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false); 
@@ -37,14 +32,13 @@ public class OrderDAO implements OrderDaoInterface {
                  PreparedStatement psDetails = connection.prepareStatement(queryDetails)) {
                 
                 psOrder.setString(1, order.getUser().getEmail());
-                psOrder.setString(2, order.getStatus().name());
+                psOrder.setLong(2, order.getShippingAddress().getId());
+                psOrder.setString(3, order.getStatus().name());
                 
                 int totalItems = order.getItems().stream().mapToInt(OrderItemBean::getQuantity).sum();
-                psOrder.setInt(3, totalItems);
-                psOrder.setDouble(4, order.getTotalAmount());
-                psOrder.setDouble(5, order.getShippingCosts());
-                
-                psOrder.setLong(6, order.getShippingAddress().getId());
+                psOrder.setInt(4, totalItems);
+                psOrder.setDouble(5, order.getTotalAmount());
+                psOrder.setDouble(6, order.getShippingCosts());
                 psOrder.executeUpdate();
                 
                 try (ResultSet rs = psOrder.getGeneratedKeys()) {
@@ -58,10 +52,10 @@ public class OrderDAO implements OrderDaoInterface {
                 if (order.getItems() != null) {
                     for (OrderItemBean item : order.getItems()) {
                         psDetails.setLong(1, order.getId()); 
-                        psDetails.setInt(2, item.getQuantity());
-                        psDetails.setDouble(3, item.getPriceAtPurchase()); 
-                        psDetails.setDouble(4, item.getVat());  
-                        psDetails.setLong(5, item.getVariant().getId());
+                        psDetails.setLong(2, item.getVariant().getId());
+                        psDetails.setInt(3, item.getQuantity());
+                        psDetails.setDouble(4, item.getPriceAtPurchase()); 
+                        psDetails.setDouble(5, item.getVat()); 
                         psDetails.addBatch(); 
                     }
                     psDetails.executeBatch();
@@ -90,6 +84,7 @@ public class OrderDAO implements OrderDaoInterface {
 
     @Override
     public OrderBean findById(Long id) {
+       
         String query = "SELECT * FROM orders WHERE id = ?";
         OrderBean order = null;
 
@@ -110,17 +105,20 @@ public class OrderDAO implements OrderDaoInterface {
 
     @Override
     public List<OrderBean> findAll() {
+      
         String query = "SELECT * FROM orders ORDER BY order_date DESC";
+        
         List<OrderBean> orders = new ArrayList<>();
         
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(query);
-             ResultSet rs = ps.executeQuery()) {
-            
+             ResultSet rs = ps.executeQuery()){
+        	
             while (rs.next()) {
                 orders.add(extractOrderFromResultSet(rs, connection));
             }
-        } catch (SQLException e) {
+        }
+        catch (SQLException e) {
             e.printStackTrace();
         }
         return orders;
@@ -128,14 +126,18 @@ public class OrderDAO implements OrderDaoInterface {
 
     @Override
     public boolean update(OrderBean order) {
+        
         String query = "UPDATE orders SET status = ? WHERE id = ?";
+        
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(query)) {
             ps.setString(1, order.getStatus().toString());
             ps.setLong(2, order.getId());
             
             return ps.executeUpdate() > 0;
-        } catch (SQLException e) {
+            
+        } 
+        catch (SQLException e) {
             e.printStackTrace();
             return false;
         }
@@ -143,28 +145,37 @@ public class OrderDAO implements OrderDaoInterface {
 
     @Override
     public boolean delete(Long id) {
+        
         String query = "DELETE FROM orders WHERE id = ?";
+        
         try (Connection connection = dataSource.getConnection();
              PreparedStatement ps = connection.prepareStatement(query)) {
             ps.setLong(1, id);
             
             return ps.executeUpdate() > 0;
-        } catch (SQLException e) {
+            
+        } 
+        catch (SQLException e) {
             e.printStackTrace();
+            
             return false;
         }
     }
 
     @Override
-    public List<OrderBean> findByUserEmail(String email) {
+    public List<OrderBean> findByUserEmail(String email){
+    	
         String query = "SELECT * FROM orders WHERE user_email = ? ORDER BY order_date DESC";
+        
         List<OrderBean> orders = new ArrayList<>();
         
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement ps = connection.prepareStatement(query)) {
-            
+             PreparedStatement ps = connection.prepareStatement(query)){
+        	
             ps.setString(1, email);
-            try (ResultSet rs = ps.executeQuery()) {
+            
+            try (ResultSet rs = ps.executeQuery()){
+            	
                 while (rs.next()) {
                     orders.add(extractOrderFromResultSet(rs, connection));
                 }
@@ -176,22 +187,26 @@ public class OrderDAO implements OrderDaoInterface {
     }
 
     @Override
-    public List<OrderBean> findOrdersByDateRange(LocalDateTime startDate, LocalDateTime endDate) {
+    public List<OrderBean> findOrdersByDateRange(LocalDateTime startDate, LocalDateTime endDate){
+    	
         String query = "SELECT * FROM orders WHERE order_date BETWEEN ? AND ? ORDER BY order_date DESC";
+        
         List<OrderBean> orders = new ArrayList<>();
         
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement ps = connection.prepareStatement(query)) {
-            
+             PreparedStatement ps = connection.prepareStatement(query)){
+        	
             ps.setTimestamp(1, Timestamp.valueOf(startDate));
             ps.setTimestamp(2, Timestamp.valueOf(endDate));
             
-            try (ResultSet rs = ps.executeQuery()) {
+            try (ResultSet rs = ps.executeQuery()){
+            	
                 while (rs.next()) {
                     orders.add(extractOrderFromResultSet(rs, connection));
                 }
             }
-        } catch (SQLException e) {
+        } 
+        catch (SQLException e) {
             e.printStackTrace();
         }
         return orders;
@@ -200,6 +215,7 @@ public class OrderDAO implements OrderDaoInterface {
     @Override
     public List<OrderBean> findOrdersByFilters(String startDate, String endDate, String customerQuery) {
         List<OrderBean> orders = new ArrayList<>();
+        
         StringBuilder query = new StringBuilder("SELECT o.* FROM orders o JOIN users u ON o.user_email = u.email WHERE 1=1");
         
         boolean hasStartDate = (startDate != null && !startDate.trim().isEmpty());
@@ -222,6 +238,7 @@ public class OrderDAO implements OrderDaoInterface {
              PreparedStatement ps = connection.prepareStatement(query.toString())) {
              
             int paramIndex = 1;
+            
             if (hasStartDate) {
                 ps.setString(paramIndex++, startDate);
             }
@@ -251,7 +268,8 @@ public class OrderDAO implements OrderDaoInterface {
                     orders.add(order);
                 }
             }
-        } catch (SQLException e) {
+        }
+        catch (SQLException e) {
             e.printStackTrace();
         }
         return orders;
@@ -266,7 +284,7 @@ public class OrderDAO implements OrderDaoInterface {
         try {
             order.setStatus(OrderStatus.valueOf(rs.getString("status").toUpperCase().trim()));
         } catch (IllegalArgumentException | NullPointerException e) {
-            order.setStatus(OrderStatus.PENDING);
+            order.setStatus(OrderStatus.PENDING); // Fallback Value
         }
 
         if (rs.getTimestamp("order_date") != null) {
@@ -276,27 +294,26 @@ public class OrderDAO implements OrderDaoInterface {
         UserBean user = new UserBean();
         user.setEmail(rs.getString("user_email"));
         order.setUser(user);
-        
-        AddressBean address = new AddressBean();
-        address.setStreet(rs.getString("shipping_street"));
-        address.setStreetNumber(rs.getInt("shipping_street_number")); 
-        address.setCity(rs.getString("shipping_city"));
-        address.setZipCode(rs.getString("shipping_zip_code"));
-        address.setProvince(rs.getString("shipping_province"));
-        address.setCountry(rs.getString("shipping_country"));
+
+        AddressBean address = findAddressById(connection, rs.getLong("shipping_address_id"));
         order.setShippingAddress(address);
+        
 
         order.setItems(findOrderItemsByOrderId(connection, order.getId()));
-        order.setPayment(findPaymentByOrderId(connection, order.getId()));
-        order.setInvoice(findInvoiceByOrderId(connection, order.getId()));
+		order.setPayment(findPaymentByOrderId(connection, order.getId()));
+		order.setInvoice(findInvoiceByOrderId(connection, order.getId()));
         
         return order;
     }
 
+    
+    /*
+     * HELPER METHODS : Retrieving information
+     * */
     private List<OrderItemBean> findOrderItemsByOrderId(Connection connection, Long orderId) throws SQLException {
-        String query = "SELECT od.*, v.product_id " +
+        String query = "SELECT od.*, v.sku, v.flavour, v.product_id " +
                        "FROM order_details od " +
-                       "LEFT JOIN variants v ON od.variant_id = v.id " +
+                       "JOIN variants v ON od.variant_id = v.id " +
                        "WHERE od.order_id = ?";
                        
         List<OrderItemBean> items = new ArrayList<>();
@@ -314,8 +331,8 @@ public class OrderDAO implements OrderDaoInterface {
                     VariantBean variant = new VariantBean();
                     variant.setId(rs.getLong("variant_id"));
                     variant.setProductId(rs.getLong("product_id"));
-                    variant.setSku(rs.getString("variant_sku"));
-                    variant.setFlavour(rs.getString("variant_flavour"));
+                    variant.setSku(rs.getString("sku"));
+                    variant.setFlavour(rs.getString("flavour"));
                     
                     item.setVariant(variant);
                     items.add(item);
@@ -348,7 +365,7 @@ public class OrderDAO implements OrderDaoInterface {
                             payment.setPaymentDate(pDate.toLocalDateTime());
                         }
                     } catch (NoSuchMethodException | SecurityException e) {
-
+                        
                     }
 
                     return payment;
@@ -372,15 +389,10 @@ public class OrderDAO implements OrderDaoInterface {
                     invoice.setTaxableAmount(rs.getDouble("taxable_total"));
                     invoice.setTotalAmount(rs.getDouble("total"));
                     
-                    AddressBean address = new AddressBean();
-                    address.setStreet(rs.getString("billing_street"));
-                    address.setStreetNumber(rs.getInt("billing_street_number")); 
-                    address.setCity(rs.getString("billing_city"));
-                    address.setZipCode(rs.getString("billing_zip_code"));
-                    address.setProvince(rs.getString("billing_province"));
-                    address.setCountry(rs.getString("billing_country"));
+                    AddressBean address = findAddressById(connection, rs.getLong("billing_address_id"));
                     invoice.setBillingAddress(address);
 
+                    
                     try {
                         Timestamp issueDate = rs.getTimestamp("issue_date");
                         if (issueDate != null) {
@@ -399,6 +411,27 @@ public class OrderDAO implements OrderDaoInterface {
         return null;
     }
     
+    private AddressBean findAddressById(Connection connection, Long id) throws SQLException {
+        String query = "SELECT * FROM addresses WHERE id = ?";
+        try (PreparedStatement ps = connection.prepareStatement(query)) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    AddressBean address = new AddressBean();
+                    address.setId(rs.getLong("id"));
+                    address.setStreet(rs.getString("street"));
+                    address.setStreetNumber(rs.getInt("street_number")); 
+                    address.setCity(rs.getString("city"));
+                    address.setZipCode(rs.getString("zip_code"));
+                    address.setProvince(rs.getString("province"));
+                    address.setCountry(rs.getString("country"));
+                    return address;
+                }
+            }
+        }
+        return null;
+    }
+
     private void savePayment(Connection connection, OrderBean order) throws SQLException {
         String queryPayment = "INSERT INTO payments (order_id, payment_method, last_four_digits, card_circuit, transaction_id, total_price, payment_status) VALUES (?, ?, ?, ?, ?, ?, ?)";
         try (PreparedStatement psPayment = connection.prepareStatement(queryPayment)) {
@@ -414,20 +447,17 @@ public class OrderDAO implements OrderDaoInterface {
     }
 
     private void saveInvoice(Connection connection, OrderBean order) throws SQLException {
-        String queryInvoice = "INSERT INTO invoices (order_id, invoice_number, holder_first_name, holder_last_name, taxable_total, total, "
-                            + "billing_street, billing_street_number, billing_city, billing_zip_code, billing_province, billing_country) "
-                            + "SELECT ?, ?, ?, ?, ?, ?, street, street_number, city, zip_code, province, country "
-                            + "FROM addresses WHERE id = ?";
-        
+        String queryInvoice = "INSERT INTO invoices (order_id, invoice_number, holder_first_name, holder_last_name, billing_address_id, taxable_total, total) VALUES (?, ?, ?, ?, ?, ?, ?)";
         try (PreparedStatement psInvoice = connection.prepareStatement(queryInvoice)) {
             psInvoice.setLong(1, order.getId());
             psInvoice.setString(2, order.getInvoice().getNumber());
             psInvoice.setString(3, order.getInvoice().getHolderFirstName());
             psInvoice.setString(4, order.getInvoice().getHolderLastName());
-            psInvoice.setDouble(5, order.getInvoice().getTaxableAmount());
-            psInvoice.setDouble(6, order.getInvoice().getTotalAmount());           
-            psInvoice.setLong(7, order.getInvoice().getBillingAddress().getId());
+            psInvoice.setLong(5, order.getInvoice().getBillingAddress().getId()); 
+            psInvoice.setDouble(6, order.getInvoice().getTaxableAmount());
+            psInvoice.setDouble(7, order.getInvoice().getTotalAmount());
             psInvoice.executeUpdate();
         }
     }
+    
 }
